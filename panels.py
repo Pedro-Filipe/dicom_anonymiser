@@ -17,7 +17,7 @@ from tkinter import messagebox
 from pathlib import Path
 from typing import Callable, Optional
 
-from PIL import ImageTk
+from PIL import Image, ImageTk
 
 from dicom_io import AnonAction, AnonRule, TagNode
 
@@ -119,35 +119,23 @@ class ImageViewerPanel(ttk.Frame):
         # Keep a reference to prevent GC
         self._photo: Optional[ImageTk.PhotoImage] = None
         self._canvas_image_id: Optional[int] = None
+        self._pil_image: Optional[Image.Image] = None
+        self._info: dict[str, str] = {}
 
         self._canvas.bind("<Configure>", self._on_resize)
+        self._resize_job: Optional[str] = None
 
     def show_image(
         self,
-        photo: Optional[ImageTk.PhotoImage],
+        pil_image: Optional[Image.Image],
         info: dict[str, str],
     ) -> None:
-        self._canvas.delete("all")
-        self._photo = photo
-
-        if photo is None:
-            cw = self._canvas.winfo_width() or 400
-            ch = self._canvas.winfo_height() or 400
-            self._canvas.create_text(
-                cw // 2,
-                ch // 2,
-                text="No image data",
-                fill="#888888",
-                font=("", 14),
-            )
+        self._pil_image = pil_image
+        self._info = info
+        # Update info bar
+        if pil_image is None:
             self._info_var.set(info.get("filename", ""))
         else:
-            self._canvas_image_id = self._canvas.create_image(
-                self._canvas.winfo_width() // 2 or 1,
-                self._canvas.winfo_height() // 2 or 1,
-                anchor=tk.CENTER,
-                image=photo,
-            )
             parts = []
             if info.get("modality"):
                 parts.append(info["modality"])
@@ -158,17 +146,52 @@ class ImageViewerPanel(ttk.Frame):
             if info.get("filename"):
                 parts.append(info["filename"])
             self._info_var.set("  |  ".join(parts))
+        self._render()
+
+    def _render(self) -> None:
+        """Re-render the stored PIL image scaled to fit the current canvas size."""
+        self._canvas.delete("all")
+        self._canvas_image_id = None
+        cw = self._canvas.winfo_width() or 400
+        ch = self._canvas.winfo_height() or 400
+
+        if self._pil_image is None:
+            self._canvas.create_text(
+                cw // 2,
+                ch // 2,
+                text="No image data",
+                fill="#888888",
+                font=("", 14),
+            )
+            return
+
+        # Scale to fill the canvas while preserving aspect ratio (up- and down-scale)
+        iw, ih = self._pil_image.size
+        scale = min(cw / iw, ch / ih)
+        new_w = max(1, int(iw * scale))
+        new_h = max(1, int(ih * scale))
+        img = self._pil_image.resize((new_w, new_h), Image.LANCZOS)
+        self._photo = ImageTk.PhotoImage(img)
+        self._canvas_image_id = self._canvas.create_image(
+            cw // 2,
+            ch // 2,
+            anchor=tk.CENTER,
+            image=self._photo,
+        )
 
     def clear(self) -> None:
         self._canvas.delete("all")
+        self._pil_image = None
         self._photo = None
+        self._canvas_image_id = None
+        self._info = {}
         self._info_var.set("")
 
     def _on_resize(self, _event: tk.Event) -> None:
-        if self._photo and self._canvas_image_id:
-            cw = self._canvas.winfo_width()
-            ch = self._canvas.winfo_height()
-            self._canvas.coords(self._canvas_image_id, cw // 2, ch // 2)
+        # Debounce: wait until resizing stops before re-rendering
+        if self._resize_job is not None:
+            self._canvas.after_cancel(self._resize_job)
+        self._resize_job = self._canvas.after(50, self._render)
 
     def canvas_size(self) -> tuple[int, int]:
         w = self._canvas.winfo_width()
@@ -207,7 +230,9 @@ class TagTreePanel(ttk.Frame):
         search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         search_entry.bind("<Escape>", lambda _e: self._search_var.set(""))
         ttk.Button(
-            search_frame, text="✕", width=2,
+            search_frame,
+            text="✕",
+            width=2,
             command=lambda: self._search_var.set(""),
         ).pack(side=tk.LEFT, padx=(4, 0))
 
@@ -246,10 +271,10 @@ class TagTreePanel(ttk.Frame):
         self.tree.tag_configure("checked", foreground="#66ff66")
 
         # Internal state
-        self._all_nodes: list[TagNode] = []            # full unfiltered node list
-        self._item_tag_map: dict[str, int] = {}        # item_id → int(tag)
-        self._item_keyword_map: dict[str, str] = {}    # item_id → keyword
-        self._checked: dict[str, bool] = {}            # item_id → checked
+        self._all_nodes: list[TagNode] = []  # full unfiltered node list
+        self._item_tag_map: dict[str, int] = {}  # item_id → int(tag)
+        self._item_keyword_map: dict[str, str] = {}  # item_id → keyword
+        self._checked: dict[str, bool] = {}  # item_id → checked
 
         self.tree.bind("<Button-1>", self._on_click)
 
@@ -259,7 +284,7 @@ class TagTreePanel(ttk.Frame):
 
     def populate(self, nodes: list[TagNode]) -> None:
         self._all_nodes = nodes
-        self._search_var.set("")   # clear search on new file
+        self._search_var.set("")  # clear search on new file
         self._rebuild_tree(nodes)
 
     def _rebuild_tree(self, nodes: list[TagNode]) -> None:
@@ -344,10 +369,14 @@ class TagTreePanel(ttk.Frame):
                 # Filter children (Item N containers)
                 filtered_children = self._filter_nodes(node.children, query)
                 if self_matches or filtered_children:
-                    result.append(dataclasses.replace(
-                        node,
-                        children=filtered_children if not self_matches else node.children,
-                    ))
+                    result.append(
+                        dataclasses.replace(
+                            node,
+                            children=(
+                                filtered_children if not self_matches else node.children
+                            ),
+                        )
+                    )
             else:
                 tag_str = f"({node.tag.group:04X},{node.tag.element:04X})"
                 if (

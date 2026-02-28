@@ -79,10 +79,14 @@ class MainApp:
 
         profile_menu = tk.Menu(menubar, tearoff=False)
         profile_menu.add_command(
-            label="Load Profile…", accelerator="Ctrl+Shift+L", command=self.on_load_profile
+            label="Load Profile…",
+            accelerator="Ctrl+Shift+L",
+            command=self.on_load_profile,
         )
         profile_menu.add_command(
-            label="Save Profile…", accelerator="Ctrl+Shift+P", command=self.on_save_profile
+            label="Save Profile…",
+            accelerator="Ctrl+Shift+P",
+            command=self.on_save_profile,
         )
         menubar.add_cascade(label="Profile", menu=profile_menu)
 
@@ -203,9 +207,8 @@ class MainApp:
             ),
         }
 
-        canvas_sz = self.image_panel.canvas_size()
-        photo = dicom_io.get_display_image(ds, max_size=canvas_sz)
-        self.image_panel.show_image(photo, info)
+        pil_img = dicom_io.get_pil_image(ds)
+        self.image_panel.show_image(pil_img, info)
 
         nodes = dicom_io.build_tag_nodes(ds)
         self.tag_panel.populate(nodes)

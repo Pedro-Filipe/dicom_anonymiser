@@ -158,15 +158,14 @@ def load_dicom(path: Path) -> pydicom.dataset.FileDataset:
 # ---------------------------------------------------------------------------
 
 
-def get_display_image(
+def get_pil_image(
     ds: pydicom.dataset.FileDataset,
-    max_size: tuple[int, int] = (512, 512),
-) -> Optional[ImageTk.PhotoImage]:
+) -> Optional[Image.Image]:
     """
-    Convert DICOM pixel data to a tkinter-compatible PhotoImage.
+    Convert DICOM pixel data to an unscaled PIL RGB Image.
 
     Pipeline:
-      pixel_array → multi-frame → modality LUT → windowing → uint8 → PIL → resize → PhotoImage
+      pixel_array → multi-frame → modality LUT → windowing → uint8 → PIL RGB
 
     Returns None if the file has no pixel data (SR, KO, PR, etc.).
     """
@@ -212,15 +211,28 @@ def get_display_image(
     photometric = getattr(ds, "PhotometricInterpretation", "MONOCHROME2")
     if arr.ndim == 3 and arr.shape[2] == 3:
         # RGB / YBR data
-        img = Image.fromarray(arr, mode="RGB")
+        return Image.fromarray(arr, mode="RGB")
     elif arr.ndim == 3 and arr.shape[2] == 4:
-        img = Image.fromarray(arr, mode="RGBA").convert("RGB")
+        return Image.fromarray(arr, mode="RGBA").convert("RGB")
     else:
         # Grayscale
         if photometric == "MONOCHROME1":
             arr = 255 - arr  # invert
-        img = Image.fromarray(arr, mode="L").convert("RGB")
+        return Image.fromarray(arr, mode="L").convert("RGB")
 
+
+def get_display_image(
+    ds: pydicom.dataset.FileDataset,
+    max_size: tuple[int, int] = (512, 512),
+) -> Optional[ImageTk.PhotoImage]:
+    """
+    Convert DICOM pixel data to a tkinter-compatible PhotoImage (resized to max_size).
+
+    Returns None if the file has no pixel data (SR, KO, PR, etc.).
+    """
+    img = get_pil_image(ds)
+    if img is None:
+        return None
     img = _resize_to_fit(img, max_size)
     return ImageTk.PhotoImage(img)
 
