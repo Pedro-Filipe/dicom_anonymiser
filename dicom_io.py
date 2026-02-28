@@ -104,8 +104,12 @@ def discover_dicom_files(folder: str) -> list[Path]:
     candidates: set[Path] = set()
 
     # Fast path: explicit .dcm extension
+    _IGNORED_NAMES = {".DS_Store"}
+
     for p in root.rglob("*"):
         if not p.is_file():
+            continue
+        if p.name in _IGNORED_NAMES:
             continue
         suffix = p.suffix.lower()
         if suffix == ".dcm":
@@ -123,9 +127,17 @@ def discover_dicom_files(folder: str) -> list[Path]:
 
 
 def _is_dicom(path: Path) -> bool:
-    """Cheap header read to confirm the file is a valid DICOM."""
+    """Confirm the file is a valid DICOM by checking the magic bytes and header.
+
+    Requires the standard Part-10 preamble (b'DICM' at offset 128) so that
+    arbitrary non-DICOM files are not mistaken for DICOM.
+    """
     try:
-        pydicom.dcmread(str(path), stop_before_pixels=True, force=True)
+        with open(path, "rb") as fh:
+            fh.seek(128)
+            if fh.read(4) != b"DICM":
+                return False
+        pydicom.dcmread(str(path), stop_before_pixels=True)
         return True
     except Exception:
         return False
@@ -392,6 +404,7 @@ def save_dicom(ds: pydicom.dataset.FileDataset, output_path: Path) -> None:
 # Anonymisation profile (YAML)
 # ---------------------------------------------------------------------------
 
+
 def save_profile(rules: dict[int, AnonRule], path: Path) -> None:
     """
     Serialise *rules* to a human-readable YAML file at *path*.
@@ -425,7 +438,9 @@ def save_profile(rules: dict[int, AnonRule], path: Path) -> None:
     doc = {"rules": entries}
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
-        yaml.dump(doc, fh, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            doc, fh, default_flow_style=False, allow_unicode=True, sort_keys=False
+        )
 
 
 def load_profile(path: Path) -> dict[int, AnonRule]:
@@ -481,7 +496,11 @@ def load_profile(path: Path) -> dict[int, AnonRule]:
                 "Must be 'blank', 'placeholder', or 'delete'."
             )
 
-        placeholder = str(entry.get("placeholder", "")) if action == AnonAction.PLACEHOLDER else ""
+        placeholder = (
+            str(entry.get("placeholder", ""))
+            if action == AnonAction.PLACEHOLDER
+            else ""
+        )
         rules[tag_int] = AnonRule(action=action, placeholder=placeholder)
 
     return rules
