@@ -61,6 +61,8 @@ class FileListPanel(ttk.Frame):
         self._listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self._listbox.bind("<<ListboxSelect>>", self._on_listbox_select)
+        self._listbox.bind("<Up>", self._on_key_up)
+        self._listbox.bind("<Down>", self._on_key_down)
 
     def set_files(self, paths: list[Path]) -> None:
         self._paths = paths
@@ -73,6 +75,20 @@ class FileListPanel(ttk.Frame):
         sel = self._listbox.curselection()
         if sel:
             self._on_select_cb(self._paths[sel[0]])
+
+    def _on_key_up(self, _event: tk.Event) -> str:
+        sel = self._listbox.curselection()
+        idx = sel[0] if sel else 0
+        new_idx = max(0, idx - 1)
+        self.select_index(new_idx)
+        return "break"  # prevent default listbox movement
+
+    def _on_key_down(self, _event: tk.Event) -> str:
+        sel = self._listbox.curselection()
+        idx = sel[0] if sel else -1
+        new_idx = min(len(self._paths) - 1, idx + 1)
+        self.select_index(new_idx)
+        return "break"
 
     def get_selected_path(self) -> Optional[Path]:
         sel = self._listbox.curselection()
