@@ -1,0 +1,1 @@
+pyinstaller dicom_anonymiser.spec

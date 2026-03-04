@@ -4,3 +4,4 @@ numpy>=1.24.0
 PyYAML>=6.0
 # Optional: uncomment for JPEG/JPEG2000/JPEG-LS compressed DICOM support
 # pylibjpeg[all]>=2.0
+pyinstaller
